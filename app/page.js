@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, Send, FileText, Bot, User, Loader2, AlertCircle, CheckCircle, X, MessageSquare, Trash2 } from 'lucide-react';
+import { Upload, Send, FileText, Bot, User, Loader2, AlertCircle, CheckCircle, X, MessageSquare, Trash2, Edit, Eye, FolderOpen } from 'lucide-react';
 import Image from 'next/image';
 
 export default function Home() {
@@ -18,8 +18,17 @@ export default function Home() {
   });
   const [showUpload, setShowUpload] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showDocuments, setShowDocuments] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [showDocumentModal, setShowDocumentModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingDocument, setEditingDocument] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [editFilename, setEditFilename] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -403,6 +412,123 @@ export default function Home() {
     }
   };
 
+  // Document Management Functions
+  const loadDocuments = async () => {
+    setDocumentsLoading(true);
+    try {
+      const response = await fetch('/api/documents');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setDocuments(data.documents || []);
+        } else {
+          console.error('Failed to load documents:', data.error);
+        }
+      } else {
+        console.error('Failed to load documents');
+      }
+    } catch (error) {
+      console.error('Error loading documents:', error);
+    } finally {
+      setDocumentsLoading(false);
+    }
+  };
+
+  const deleteDocument = async (filename) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/documents', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filename }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setDocuments(prev => prev.filter(doc => doc.filename !== filename));
+          alert(`Successfully deleted "${filename}"`);
+        } else {
+          alert(`Failed to delete document: ${data.error}`);
+        }
+      } else {
+        alert('Failed to delete document');
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      alert('Error deleting document');
+    }
+  };
+
+  const updateDocument = async () => {
+    if (!editingDocument || !editText.trim()) {
+      alert('Please provide document content');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/documents', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filename: editingDocument.filename,
+          newText: editText,
+          newFilename: editFilename || editingDocument.filename,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Update the documents list
+          setDocuments(prev => prev.map(doc => 
+            doc.filename === editingDocument.filename 
+              ? { ...doc, filename: editFilename || editingDocument.filename }
+              : doc
+          ));
+          setShowEditModal(false);
+          setEditingDocument(null);
+          setEditText('');
+          setEditFilename('');
+          alert('Document updated successfully');
+        } else {
+          alert(`Failed to update document: ${data.error}`);
+        }
+      } else {
+        alert('Failed to update document');
+      }
+    } catch (error) {
+      console.error('Error updating document:', error);
+      alert('Error updating document');
+    }
+  };
+
+  const viewDocument = (document) => {
+    setSelectedDocument(document);
+    setShowDocumentModal(true);
+  };
+
+  const editDocument = (document) => {
+    setEditingDocument(document);
+    setEditText(document.chunks.map(chunk => chunk.text).join('\n\n'));
+    setEditFilename(document.filename);
+    setShowEditModal(true);
+  };
+
+  // Load documents when documents section is opened
+  useEffect(() => {
+    if (showDocuments) {
+      loadDocuments();
+    }
+  }, [showDocuments]);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
@@ -433,6 +559,14 @@ export default function Home() {
             >
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">History</span>
+            </button>
+            
+            <button
+              onClick={() => setShowDocuments(!showDocuments)}
+              className="flex items-center space-x-2 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <FolderOpen className="h-4 w-4" />
+              <span className="hidden sm:inline">Documents</span>
             </button>
             
             <button
@@ -558,13 +692,99 @@ export default function Home() {
         </div>
       )}
 
+      {/* Documents Section */}
+      {showDocuments && (
+        <div className="bg-white border-b px-4 py-4">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Document Management</h3>
+              <button
+                onClick={loadDocuments}
+                disabled={documentsLoading}
+                className="flex items-center space-x-2 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {documentsLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                <span>Refresh</span>
+              </button>
+            </div>
+            
+            {documentsLoading ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500">Loading documents...</p>
+              </div>
+            ) : documents.length === 0 ? (
+              <div className="text-center py-8">
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No documents found</h3>
+                <p className="text-gray-500">Upload some documents to get started.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {documents.map((document) => (
+                  <div
+                    key={document.filename}
+                    className="p-4 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-medium text-gray-900 truncate">
+                          {document.filename}
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {document.fileType.toUpperCase()} • {document.chunkCount} chunks
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(document.uploadDate).toLocaleDateString()}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {Math.round(document.totalTextLength / 1024)} KB
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => viewDocument(document)}
+                        className="flex-1 flex items-center justify-center space-x-1 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                      >
+                        <Eye className="h-3 w-3" />
+                        <span>View</span>
+                      </button>
+                      <button
+                        onClick={() => editDocument(document)}
+                        className="flex-1 flex items-center justify-center space-x-1 px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition-colors"
+                      >
+                        <Edit className="h-3 w-3" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        onClick={() => deleteDocument(document.filename)}
+                        className="flex-1 flex items-center justify-center space-x-1 px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-4xl mx-auto space-y-4">
           {messages.length === 0 ? (
             <div className="text-center py-12">
               <Bot className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Welcome to Local AI Chatbot</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Welcome, I am Isha.</h3>
               <p className="text-gray-500 mb-4">
                 Upload documents and ask questions. I&apos;ll use RAG to provide accurate answers.
               </p>
@@ -691,6 +911,126 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Document View Modal */}
+      {showDocumentModal && selectedDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-medium text-gray-900">
+                {selectedDocument.filename}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowDocumentModal(false);
+                  setSelectedDocument(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">File Type:</span>
+                    <p className="font-medium">{selectedDocument.fileType.toUpperCase()}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Chunks:</span>
+                    <p className="font-medium">{selectedDocument.chunkCount}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Size:</span>
+                    <p className="font-medium">{Math.round(selectedDocument.totalTextLength / 1024)} KB</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Uploaded:</span>
+                    <p className="font-medium">{new Date(selectedDocument.uploadDate).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Document Content:</h4>
+                  <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
+                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                      {selectedDocument.chunks.map(chunk => chunk.text).join('\n\n')}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Edit Modal */}
+      {showEditModal && editingDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-medium text-gray-900">
+                Edit Document: {editingDocument.filename}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingDocument(null);
+                  setEditText('');
+                  setEditFilename('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Filename:
+                </label>
+                <input
+                  type="text"
+                  value={editFilename}
+                  onChange={(e) => setEditFilename(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter new filename"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Document Content:
+                </label>
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  placeholder="Enter document content..."
+                />
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingDocument(null);
+                    setEditText('');
+                    setEditFilename('');
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={updateDocument}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Update Document
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
